@@ -1,10 +1,9 @@
 terraform {
-  cloud {
-    organization = "infrastructure-nobbs"
-
-    workspaces {
-      name = "infrastructure"
-    }
+  backend "azurerm" {
+    resource_group_name  = "tfstate"
+    storage_account_name = "tfstatenobbsinfra"
+    container_name       = "tfstate"
+    key                  = "terraform.tfstate"
   }
 
   required_providers {

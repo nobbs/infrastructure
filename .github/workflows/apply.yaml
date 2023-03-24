@@ -8,6 +8,7 @@ on:
 env:
   TF_CLI_ARGS: -no-color
   # pass credentials to Terraform
+  ARM_ACCESS_KEY: ${{ secrets.ARM_ACCESS_KEY }}
   HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
   TF_VAR_inwx_username: ${{ vars.INWX_USER }}
   TF_VAR_inwx_password: ${{ secrets.INWX_PASS }}
