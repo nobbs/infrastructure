@@ -1,0 +1,109 @@
+name: Check PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+env:
+  TF_CLI_ARGS: -no-color
+  # pass credentials to Terraform
+  HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+  TF_VAR_inwx_username: ${{ vars.INWX_USER }}
+  TF_VAR_inwx_password: ${{ secrets.INWX_PASS }}
+
+defaults:
+  run:
+    shell: bash
+    working-directory: terraform
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: HashiCorp - Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_CLOUD_TOKEN }}
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt -check
+        continue-on-error: true
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+
+  plan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: HashiCorp - Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_CLOUD_TOKEN }}
+
+      - name: Generate INWX TOTP Token
+        id: inwx-totp
+        uses: nknguyengl/totp-generator@v1.0.0
+        with:
+          totp_key: ${{ secrets.INWX_SHARED_SECRET }}
+
+      - name: Set INWX TOTP as Env Var
+        run: |
+          echo "TF_VAR_inwx_mobile_tan=${{ steps.inwx-totp.outputs.code }}" >> $GITHUB_ENV
+
+      - name: Terraform Init
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan -input=false -no-color -out=tfplan \
+            && terraform show -no-color tfplan
+
+      - name: Reformat Plan and Save to Env Var
+        run: |
+          echo '${{ steps.plan.outputs.stdout || steps.plan.outputs.stderr }}' \
+            | sed -E 's/^([[:space:]]+)([-+])/\2\1/g' > plan.txt
+
+      - name: Put Plan in Env Var
+        run: |
+          PLAN=$(cat plan.txt)
+          echo "PLAN<<EOF" >> $GITHUB_ENV
+          echo "$PLAN" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Post comment on successful apply
+        uses: mshick/add-pr-comment@v2
+        with:
+          allow-repeats: true
+          message: |
+            #### Terraform Plan
+
+            <details>
+            <summary>Show Plan</summary>
+
+            ```diff
+            ${{env.PLAN}}
+            ```
+
+            </details>
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Workflow: \`${{ github.workflow }}\`*
