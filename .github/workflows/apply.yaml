@@ -1,0 +1,125 @@
+name: Apply to Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  TF_CLI_ARGS: -no-color
+  # pass credentials to Terraform
+  HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+  TF_VAR_inwx_username: ${{ vars.INWX_USER }}
+  TF_VAR_inwx_password: ${{ secrets.INWX_PASS }}
+
+defaults:
+  run:
+    shell: bash
+    working-directory: terraform
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  statuses: write
+
+jobs:
+  apply:
+    name: Apply to Infrastructure
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: HashiCorp - Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_CLOUD_TOKEN }}
+
+      - name: Generate INWX TOTP Token
+        id: inwx-totp
+        uses: nknguyengl/totp-generator@v1.0.0
+        with:
+          totp_key: ${{ secrets.INWX_SHARED_SECRET }}
+
+      - name: Set INWX TOTP as Env Var
+        run: |
+          echo "TF_VAR_inwx_mobile_tan=${{ steps.inwx-totp.outputs.code }}" >> $GITHUB_ENV
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        id: plan
+        continue-on-error: true
+        run: |
+          terraform plan -input=false -no-color -out=tfplan \
+            && terraform show -no-color tfplan
+
+      - name: Reformat Plan and Save to Env Var
+        if: steps.plan.outcome == 'success'
+        run: |
+          echo '${{ steps.plan.outputs.stdout || steps.plan.outputs.stderr }}' \
+            | sed -E 's/^([[:space:]]+)([-+])/\2\1/g' > plan.txt
+
+      - name: Put Plan in Env Var
+        if: steps.plan.outcome == 'success'
+        run: |
+          PLAN=$(cat plan.txt)
+          echo "PLAN<<EOF" >> $GITHUB_ENV
+          echo "$PLAN" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Terraform Apply
+        if: steps.plan.outcome == 'success'
+        id: apply
+        run: |
+          terraform apply tfplan
+
+      - name: Post comment on successful apply
+        if: steps.apply.outcome == 'success' && steps.plan.outcome == 'success'
+        uses: mshick/add-pr-comment@v2
+        with:
+          message: |
+            #### Terraform Apply Successful
+
+            ##### Plan
+
+            <details>
+            <summary>Show Plan</summary>
+
+            ```diff
+            ${{ env.PLAN }}
+            ```
+
+            </details>
+
+            ##### Output
+
+            ````
+            ${{ steps.apply.outputs.stdout }}
+            ````
+
+      - name: Post comment if plan failed
+        if: steps.plan.outcome == 'failure'
+        uses: mshick/add-pr-comment@v2
+        with:
+          message: |
+            #### Terraform Plan Failed
+
+            ```
+            ${{ steps.plan.outputs.stdout || steps.plan.outputs.stderr }}
+            ```
+
+      - name: Post comment if apply failed
+        if: steps.apply.outcome == 'failure'
+        uses: mshick/add-pr-comment@v2
+        with:
+          message: |
+            #### Terraform Apply Failed
+
+            ```
+            ${{ steps.apply.outputs.stdout || steps.apply.outputs.stderr }}
+            ```
