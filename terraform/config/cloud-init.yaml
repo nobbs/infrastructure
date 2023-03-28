@@ -2,17 +2,35 @@
 package_update: true
 package_upgrade: true
 
+packages:
+  - zsh
+  - git
+  - curl
+  - wget
+
 groups:
   - name: docker
-    gid: 999
+    gid: "999"
 
 users:
   - name: nobbs
     groups: users, admin, docker
     sudo: ALL=(ALL) NOPASSWD:ALL
-    shell: /bin/zsh
-    ssh-authorized-keys:
+    shell: /usr/bin/zsh
+    ssh_authorized_keys:
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDCBMdl3Z8zgAUVF5AeY8hz3vcnkrJ+dPh3yYIKGm2ZO"
 
 runcmd:
+  # sshd hardening
+  - sed -i -e '/^\(#\|\)PermitRootLogin/s/^.*$/PermitRootLogin no/' /etc/ssh/sshd_config
+  - sed -i -e '/^\(#\|\)PasswordAuthentication/s/^.*$/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - sed -i -e '/^\(#\|\)X11Forwarding/s/^.*$/X11Forwarding no/' /etc/ssh/sshd_config
+  - sed -i -e '/^\(#\|\)MaxAuthTries/s/^.*$/MaxAuthTries 2/' /etc/ssh/sshd_config
+  - sed -i -e '/^\(#\|\)AllowTcpForwarding/s/^.*$/AllowTcpForwarding yes/' /etc/ssh/sshd_config
+  - sed -i -e '/^\(#\|\)AllowAgentForwarding/s/^.*$/AllowAgentForwarding no/' /etc/ssh/sshd_config
+  - sed -i -e '/^\(#\|\)AuthorizedKeysFile/s/^.*$/AuthorizedKeysFile .ssh\/authorized_keys/' /etc/ssh/sshd_config
+  - sed -i '$a AllowUsers nobbs' /etc/ssh/sshd_config
+  # install docker
   - curl -fsSL https://get.docker.com | sh
+  # reboot
+  - reboot
